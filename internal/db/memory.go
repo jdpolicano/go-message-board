@@ -16,7 +16,8 @@ type Message struct {
 }
 
 type Session struct {
-	Id       string    // the name of this Session.
+	Id       string // the name of this Session.
+	Creator  string
 	Messages []Message // messages in the board, sorted by time when they occured.
 }
 
@@ -28,17 +29,18 @@ func NewMemDatabase() MemoryDatabase {
 	return MemoryDatabase{Sessions: make(map[string]*Session)}
 }
 
-func (db *MemoryDatabase) CreateSession(name string) error {
+func (db *MemoryDatabase) CreateSession(name string, id string) (*Session, error) {
 	if db == nil {
-		return NullPointer
+		return nil, NullPointer
 	}
 
 	if db.GetSession(name) != nil {
-		return SessionAlreadyExists
+		return nil, SessionAlreadyExists
 	}
 
-	db.Sessions[name] = &Session{name, make([]Message, 0)}
-	return nil
+	session := &Session{name, id, make([]Message, 0)}
+	db.Sessions[name] = session
+	return session, nil
 }
 
 func (db *MemoryDatabase) GetSession(id string) *Session {
