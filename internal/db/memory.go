@@ -71,7 +71,7 @@ func (session *Session) AddMessage(content, user string) Message {
 	return message
 }
 
-func (session *Session) GetMessages(content, user string) []Message {
+func (session *Session) GetMessages() []Message {
 	messages := make([]Message, 0, len(session.Messages))
 	copy(messages, session.Messages)
 	return messages

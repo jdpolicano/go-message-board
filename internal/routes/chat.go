@@ -1,21 +1,32 @@
 package routes
 
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+
+	"github.com/jdpolicano/go-message-board/internal/controller"
+	"github.com/jdpolicano/go-message-board/internal/util"
+)
+
 type BoardListResonse struct {
-	Boards []string `json:"boards"`
+	sessions []string `json:"boards"`
 }
 
 type BoardCreateRequest struct {
-	Name string `json:"name"`
+	user string `json:"user"`
 }
 
-type Chat struct {
+func NewListChatHandler(c *controller.Controller) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessions := c.ListSessionIds()
+		payload, e := json.Marshal(BoardListResonse{sessions})
+		if e != nil {
+			util.Error(w, fmt.Sprintf("encoding payload: %s", e), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write(payload)
+	}
 }
-
-// func HealthHandler(w http.ResponseWriter, _ *http.Request) {
-// 	response := HealthResponse{
-// 		TimeStamp: time.Now().Unix(),
-// 		Status:    200,
-// 	}
-// 	w.Header().Set("Content-Type", "application/json")
-// 	json.NewEncoder(w).Encode(response)
-// }

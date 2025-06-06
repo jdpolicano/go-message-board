@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/google/uuid"
@@ -31,9 +32,10 @@ type SessionHandle struct {
 	shouldQuit bool
 	store      *db.Session
 	clients    []*Client
+	onClose    func(*db.Session)
 }
 
-func newSessionHandle(store *db.Session) *SessionHandle {
+func newSessionHandle(store *db.Session, onClose func(*db.Session)) *SessionHandle {
 	return &SessionHandle{
 		register:   make(chan *Client),
 		unregister: make(chan string),
@@ -42,10 +44,32 @@ func newSessionHandle(store *db.Session) *SessionHandle {
 		shouldQuit: false,
 		clients:    make([]*Client, 0, 1024),
 		store:      store,
+		onClose:    onClose,
 	}
 }
 
-func (s *SessionHandle) spawn() {
+func (s *SessionHandle) Register(c *websocket.Conn, userName string) {
+	if s == nil {
+		return
+	}
+	s.register <- &Client{c, userName}
+}
+
+func (s *SessionHandle) UnRegister(userName string) {
+	if s == nil {
+		return
+	}
+	s.unregister <- userName
+}
+
+func (s *SessionHandle) Message(userName string, content string) {
+	if s == nil {
+		return
+	}
+	s.message <- ClientMessage{userName, content}
+}
+
+func (s *SessionHandle) start() {
 	defer s.closeSession()
 	for !s.shouldQuit {
 		select {
@@ -67,6 +91,10 @@ func (s *SessionHandle) spawn() {
 			}
 		}
 	}
+
+	if s.onClose != nil {
+		s.onClose(s.store)
+	}
 }
 
 func (s *SessionHandle) addClient(client *Client) {
@@ -79,6 +107,11 @@ func (s *SessionHandle) addClient(client *Client) {
 		}
 	}
 	s.clients = append(s.clients, client)
+	for _, msg := range s.store.GetMessages() {
+		if e := client.conn.WriteJSON(msg); e != nil {
+			log.Fatal(e)
+		}
+	}
 }
 
 func (s *SessionHandle) removeClient(username string) {
@@ -110,8 +143,8 @@ func (s *SessionHandle) addMessage(message ClientMessage) {
 	}
 	payload := s.store.AddMessage(message.Content, message.Username)
 	for _, c := range s.clients {
-		if c.userName != message.Username {
-			c.conn.WriteJSON(payload)
+		if e := c.conn.WriteJSON(payload); e != nil {
+			log.Fatal(e)
 		}
 	}
 }
@@ -157,9 +190,34 @@ func (c *Controller) CreateSession(client *Client) (*SessionHandle, error) {
 	if e != nil {
 		return nil, fmt.Errorf("%s", e)
 	}
-	session := newSessionHandle(store)
-	go session.spawn()
+	session := newSessionHandle(store, func(s *db.Session) {
+		c.deleteSession(s)
+	})
+	c.sessions[id] = session
+	go session.start()
 	return session, nil
+}
+
+func (c *Controller) GetSession(id string) (*SessionHandle, error) {
+	if c == nil {
+		return nil, fmt.Errorf("session (%s) does not exist", id)
+	}
+	c.RLock()
+	defer c.RUnlock()
+	session, exists := c.sessions[id]
+	if !exists {
+		return nil, fmt.Errorf("session (%s) does not exist", id)
+	}
+	return session, nil
+}
+
+func (c *Controller) deleteSession(session *db.Session) {
+	if c == nil {
+		return
+	}
+	c.Lock()
+	defer c.Unlock()
+	delete(c.sessions, session.Id)
 }
 
 // func SpawnBoardChat(db *db.Session) SessionHandle {
